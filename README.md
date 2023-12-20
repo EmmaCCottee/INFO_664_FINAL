@@ -1,1 +1,1 @@
-# INFO_664_FINAL
+This project utilized Python, Wikidata, and The Metropolitan Museum of Art's API to analyze the diversity of women artists in the museum's collection. Its aim is to provide insights into their representation based on categories such as gender, nationality, and year of inception.
