@@ -1,0 +1,109 @@
+import requests
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pickle as pkl
+
+
+# Wikidata API function
+def query_wikidata(query):
+    endpoint_url = "https://query.wikidata.org/sparql"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36"
+    }
+    params = {
+        "format": "json",
+        "query": query,
+    }
+    response = requests.get(endpoint_url, headers=headers, params=params)
+    data = response.json()
+    return data
+
+def collect_data(artist):
+    met_url = f"https://collectionapi.metmuseum.org/public/collection/v1/search?q={artist}"
+    response = requests.get(met_url)
+    met_results = response.json()
+
+    if met_results['objectIDs']:
+        object_id = met_results['objectIDs'][0]  # Get the first artwork
+        artwork_url = f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{object_id}"
+        response = requests.get(artwork_url)
+
+        if response.text:  # Check if the response is not empty
+            artwork_data = response.json()
+            nationality = artwork_data.get('artistNationality', None)
+            year_of_inception = artwork_data.get('objectDate', None)  # Get the year of inception
+            return nationality, year_of_inception
+        else:
+            return None, None
+    else:
+        return None, None 
+
+
+# Example query for artists
+wikidata_query = """
+SELECT ?artist ?artistLabel ?gender WHERE {
+    ?artist wdt:P106 wd:Q1028181;
+            wdt:P21 ?gender;
+            rdfs:label ?artistLabel.
+    FILTER(LANG(?artistLabel) = "en")
+}
+LIMIT 1000
+"""
+
+wikidata_results = query_wikidata(wikidata_query)
+
+# Collect data from The Met API
+artists = [result['artistLabel']['value'] for result in wikidata_results['results']['bindings']]
+genders = ['male' if result['gender']['value'].split('/')[-1] == 'Q6581097' else 'female' for result in wikidata_results['results']['bindings']]  # Label genders as 'male' or 'female'
+nationalities, years_of_inception = zip(*[collect_data(artist) for artist in artists])  # Unpack the results of collect_data into two separate lists
+
+# Create DataFrame
+df = pd.DataFrame({
+    'artist': artists,
+    'gender': genders,
+    'nationality': nationalities,
+    'year_of_inception': years_of_inception
+})
+
+print("Wikidata & Met DataFrame:")
+print(df)
+df.to_pickle('data.pkl') #save the dataframe to pickle file . This is important for use of data in a web server
+
+# Gender diversity
+gender_counts = df['gender'].value_counts(dropna=False).replace({'Q6581097': 'Male', 'Q6581072': 'Female', 'Q1052281': 'Transgender female', 'Q2449503': 'Transgender male', 'Q1097630': 'Intersex', 'Q48270': 'Unknown', 'Q1264807': 'None'}).fillna('Not labeled')
+print("Gender Diversity:\n", gender_counts)  # Print the diversity results
+plt.figure(figsize=(10, 5))
+sns.barplot(x=gender_counts.index, y=gender_counts.values, alpha=0.8)
+plt.title('Gender Diversity')
+plt.ylabel('Number of Occurrences', fontsize=12)
+plt.xlabel('Gender', fontsize=12)
+plt.savefig('gender_diversity.png')  # Save the figure before showing it
+plt.show()
+
+# Nationality diversity
+nationality_counts = df['nationality'].value_counts(dropna=False).fillna('Not labeled')
+print("\nNationality Diversity:\n", nationality_counts)  # Print the diversity results
+plt.figure(figsize=(10, 5))
+sns.barplot(x=nationality_counts.index, y=nationality_counts.values, alpha=0.8)
+plt.title('Nationality Diversity')
+plt.ylabel('Number of Occurrences', fontsize=12)
+plt.xlabel('Nationality', fontsize=12)
+plt.xticks(rotation=90)  # Tilt the nationality names
+plt.savefig('Nationality Diversity.png')  
+plt.show()
+
+# Year of inception diversity
+# Convert 'year_of_inception' to datetime and extract the year
+df['year_of_inception'] = pd.to_datetime(df['year_of_inception'], errors='coerce').dt.year
+year_counts = df['year_of_inception'].value_counts(bins=10, dropna=False).rename('Not labeled')  # Categorize according to year or theme/era
+print("\nYear of Inception Diversity:\n", year_counts)  # Print the diversity results
+plt.figure(figsize=(10, 5))
+sns.histplot(df['year_of_inception'], bins=30)
+plt.title('Year of Inception Diversity')
+plt.ylabel('Number of Occurrences', fontsize=12)
+plt.xlabel('Year of Inception', fontsize=12)
+plt.savefig('year_of_inception.png') 
+plt.show()
+
+
